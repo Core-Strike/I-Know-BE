@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  main_spring:
+    container_name: main_spring
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8088:8080"
+    volumes:
+      - /spring:/image
+    restart: always
