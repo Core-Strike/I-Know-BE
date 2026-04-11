@@ -10,7 +10,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.*;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -21,36 +26,39 @@ public class DashboardService {
     private final AlertRepository alertRepository;
 
     @Transactional(readOnly = true)
-    public List<DashboardClassResponse> getDashboardClasses() {
+    public List<DashboardClassResponse> getDashboardClasses(LocalDate date) {
+        LocalDateTime startOfDay = date.atStartOfDay();
+        LocalDateTime endOfDay = date.plusDays(1).atStartOfDay();
 
-        // 전체 세션을 classId 기준으로 그룹화
-        Map<String, List<Session>> sessionsByClass = sessionRepository.findAll()
+        List<Alert> alertsForDate = alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay);
+
+        Set<String> sessionIds = alertsForDate.stream()
+                .map(Alert::getSessionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<String, Session> sessionBySessionId = sessionRepository.findAllBySessionIdIn(sessionIds)
                 .stream()
-                .collect(Collectors.groupingBy(
-                        s -> s.getClassId() != null ? s.getClassId() : "unknown"
-                ));
+                .collect(Collectors.toMap(Session::getSessionId, session -> session));
 
-        return sessionsByClass.entrySet().stream()
+        Map<String, List<Alert>> alertsByClass = alertsForDate.stream()
+                .collect(Collectors.groupingBy(alert -> {
+                    Session session = sessionBySessionId.get(alert.getSessionId());
+                    return session != null && session.getClassId() != null ? session.getClassId() : "unknown";
+                }));
+
+        return alertsByClass.entrySet().stream()
                 .map(entry -> buildClassResponse(entry.getKey(), entry.getValue()))
                 .collect(Collectors.toList());
     }
 
-    private DashboardClassResponse buildClassResponse(String classId, List<Session> sessions) {
-
-        // 해당 반의 모든 Alert 수집
-        List<Alert> alerts = sessions.stream()
-                .flatMap(s -> alertRepository
-                        .findBySessionIdOrderByCapturedAtDesc(s.getSessionId()).stream())
-                .collect(Collectors.toList());
-
-        // 평균 confusedScore
+    private DashboardClassResponse buildClassResponse(String classId, List<Alert> alerts) {
         double avgScore = alerts.stream()
                 .filter(a -> a.getConfusedScore() != null)
                 .mapToDouble(Alert::getConfusedScore)
                 .average()
                 .orElse(0.0);
 
-        // unclearTopic 빈도 상위 5개 (대시보드 태그 목록)
         List<String> topTopics = alerts.stream()
                 .filter(a -> a.getUnclearTopic() != null)
                 .collect(Collectors.groupingBy(Alert::getUnclearTopic, Collectors.counting()))
@@ -60,7 +68,6 @@ public class DashboardService {
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
 
-        // 최근 알림 10개
         List<AlertResponse> recentAlerts = alerts.stream()
                 .limit(10)
                 .map(AlertResponse::from)

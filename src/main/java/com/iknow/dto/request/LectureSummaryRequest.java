@@ -8,4 +8,5 @@ import lombok.NoArgsConstructor;
 public class LectureSummaryRequest {
     private Long alertId;
     private String summary;
+    private String recommendedConcept;
 }

@@ -20,6 +20,9 @@ public class LectureSummaryService {
                 .orElseThrow(() -> new RuntimeException("Alert not found: " + request.getAlertId()));
 
         alert.setLectureSummary(request.getSummary());
+        if (request.getRecommendedConcept() != null) {
+            alert.setReason(request.getRecommendedConcept());
+        }
         return AlertResponse.from(alertRepository.save(alert));
     }
 

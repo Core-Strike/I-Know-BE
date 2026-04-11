@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -17,7 +18,7 @@ public class DashboardController {
 
     // GET /api/dashboard/classes — 반별 통계 (대시보드용)
     @GetMapping("/classes")
-    public ResponseEntity<List<DashboardClassResponse>> getDashboardClasses() {
-        return ResponseEntity.ok(dashboardService.getDashboardClasses());
+    public ResponseEntity<List<DashboardClassResponse>> getDashboardClasses(@RequestParam LocalDate date) {
+        return ResponseEntity.ok(dashboardService.getDashboardClasses(date));
     }
 }
