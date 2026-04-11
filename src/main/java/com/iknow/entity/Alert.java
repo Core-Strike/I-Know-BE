@@ -23,6 +23,8 @@ public class Alert {
 
     private String studentId;
 
+    private String studentName;    // 수강생 이름
+
     @Column(nullable = false)
     private LocalDateTime capturedAt;
 
@@ -33,6 +35,14 @@ public class Alert {
 
     // confused 발생 시점 기준 가장 가까운 강의 토픽 (LectureTopic에서 매칭)
     private String unclearTopic;
+
+    // 이벤트 직후 2분 녹음 STT 원문
+    @Column(columnDefinition = "TEXT")
+    private String lectureText;
+
+    // GPT 요약문 (FastAPI /summarize 결과)
+    @Column(columnDefinition = "TEXT")
+    private String lectureSummary;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

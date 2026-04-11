@@ -8,8 +8,8 @@
 
 | 항목 | 내용 |
 |------|------|
-| 언어 | Java 17 |
-| 프레임워크 | Spring Boot 3.x |
+| 언어 | Java 21 |
+| 프레임워크 | Spring Boot 4.0.5 |
 | 데이터베이스 | MySQL 8 |
 | ORM | Spring Data JPA |
 | 실시간 통신 | WebSocket + STOMP (SockJS) |
@@ -26,7 +26,7 @@
 
 [Spring Boot]                          ← 이 서비스
   ① confused 이벤트 수신
-  → Alert DB 저장
+  → Alert DB 저장 (studentName 포함)
   → 해당 시점 강의 토픽 매칭 (LectureTopic)
   → WebSocket으로 강사에게 즉시 푸시
 
@@ -34,24 +34,20 @@
   → POST /api/lecture-chunk
   → LectureTopic DB 저장
 
+  ③ 이벤트 직후 2분 STT 원문 수신
+  → POST /api/lecture-summary
+  → Alert에 lectureText 저장
+
+  ④ 강사 PASS 버튼
+  → DELETE /api/alerts/:alertId
+
 [강사 브라우저]
   WebSocket 구독 /topic/alert/{sessionId}
   → 알림 수신 → 대시보드 표시
   → 마이크 녹음 → STT 변환 → POST /api/lecture-chunk
+  → 알림 2분 후 STT 원문 → POST /api/lecture-summary
+  → STT 원문 → POST FastAPI /summarize (AI 요약, Spring 미관여)
 ```
-
----
-
-## 환경변수
-
-`application.yml`은 아래 환경변수를 참조합니다. 미설정 시 괄호 안의 기본값을 사용합니다.
-
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `DB_HOST` | `localhost` | MySQL 호스트 |
-| `DB_NAME` | `iknow` | 데이터베이스명 |
-| `DB_USERNAME` | `root` | DB 계정 |
-| `DB_PASSWORD` | `password` | DB 비밀번호 |
 
 ---
 
@@ -61,10 +57,12 @@
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `id` | Long | PK (자동 생성) |
-| `sessionId` | String | UUID (프론트엔드와 공유하는 식별자) |
+| `id` | Long | PK |
+| `sessionId` | String | **6자리 숫자** (100000~999999, 중복 시 재생성) |
 | `classId` | String | 반 식별자 |
-| `startedAt` | LocalDateTime | 세션 시작 시각 (자동 기록) |
+| `thresholdPct` | Integer | 혼란 감지 임계값 % (기본 50, 대시보드 참고용) |
+| `curriculum` | String | 커리큘럼 텍스트 (대시보드 참고용) |
+| `startedAt` | LocalDateTime | 세션 시작 시각 (자동) |
 | `endedAt` | LocalDateTime | 세션 종료 시각 |
 | `status` | Enum | `ACTIVE` / `ENDED` |
 
@@ -75,11 +73,16 @@
 | `id` | Long | PK |
 | `sessionId` | String | 연관 세션 ID |
 | `studentId` | String | 교육생 식별자 |
+| `studentName` | String | 교육생 이름 |
 | `capturedAt` | LocalDateTime | confused 발생 시각 |
 | `confusedScore` | Double | 혼란도 점수 (0.0 ~ 1.0) |
 | `reason` | String | GPT 판단 이유 |
-| `unclearTopic` | String | 매칭된 강의 토픽 (LectureTopic에서 자동 조회) |
-| `createdAt` | LocalDateTime | 저장 시각 (자동 기록) |
+| `unclearTopic` | String | 매칭된 강의 토픽 (LectureTopic 자동 조회) |
+| `lectureText` | String (TEXT) | 이벤트 직후 2분 녹음 STT 원문 (Spring 저장) |
+| `lectureSummary` | String (TEXT) | GPT 요약문 — FastAPI `/summarize` 결과, 프론트가 직접 관리 |
+| `createdAt` | LocalDateTime | 저장 시각 (자동) |
+
+> `lectureSummary`는 Spring이 직접 생성하지 않습니다. 프론트엔드가 FastAPI `/summarize`를 호출하여 요약을 받고, 필요 시 별도로 저장합니다.
 
 ### LectureTopic
 
@@ -90,7 +93,7 @@
 | `classId` | String | 반 식별자 |
 | `topicText` | String (TEXT) | 강사 음성 STT 변환 텍스트 |
 | `capturedAt` | LocalDateTime | 녹음 시각 |
-| `createdAt` | LocalDateTime | 저장 시각 (자동 기록) |
+| `createdAt` | LocalDateTime | 저장 시각 (자동) |
 
 ---
 
@@ -101,20 +104,30 @@
 ---
 
 #### `POST /api/sessions`
-세션을 생성합니다. 강사가 수업을 시작할 때 호출합니다.
+강사가 수업 시작 시 세션을 생성합니다.
 
 **Request Body**
 ```json
 {
-  "classId": "class-1"
+  "classId": "class-1",
+  "thresholdPct": 50,
+  "curriculum": "Spring Boot, JPA, 트랜잭션"
 }
 ```
+
+| 필드 | 필수 | 설명 |
+|------|------|------|
+| `classId` | Y | 반 식별자 |
+| `thresholdPct` | N | 혼란 임계값 %, 기본 50 (대시보드 참고용) |
+| `curriculum` | N | 커리큘럼 텍스트 (대시보드 참고용) |
 
 **Response `200 OK`**
 ```json
 {
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "382941",
   "classId": "class-1",
+  "thresholdPct": 50,
+  "curriculum": "Spring Boot, JPA, 트랜잭션",
   "status": "ACTIVE",
   "startedAt": "2024-01-01T09:00:00",
   "endedAt": null
@@ -124,19 +137,15 @@
 ---
 
 #### `PATCH /api/sessions/{sessionId}/end`
-세션을 종료합니다. 강사가 수업을 끝낼 때 호출합니다.
-
-**Path Parameter**
-
-| 파라미터 | 설명 |
-|----------|------|
-| `sessionId` | 종료할 세션 ID |
+세션을 종료합니다.
 
 **Response `200 OK`**
 ```json
 {
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "382941",
   "classId": "class-1",
+  "thresholdPct": 50,
+  "curriculum": "Spring Boot, JPA, 트랜잭션",
   "status": "ENDED",
   "startedAt": "2024-01-01T09:00:00",
   "endedAt": "2024-01-01T10:30:00"
@@ -150,48 +159,43 @@
 ---
 
 #### `POST /api/confused-events`
-교육생의 confused 이벤트를 수신합니다.
-프론트엔드에서 연속 3회(30초) confused 감지 시 호출합니다.
+교육생 confused 이벤트를 수신합니다. 프론트엔드에서 연속 3회(30초) 감지 시 호출합니다.
 
-수신 즉시 Alert를 DB에 저장하고, 해당 시점 가장 가까운 강의 토픽(LectureTopic)을 자동으로 매칭한 뒤 강사에게 WebSocket으로 푸시합니다.
+수신 즉시 Alert를 저장하고, 해당 시점 가장 가까운 강의 토픽(LectureTopic)을 매칭한 뒤 강사에게 WebSocket으로 푸시합니다.
 
 **Request Body**
 ```json
 {
   "studentId": "student_42",
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "studentName": "홍길동",
+  "sessionId": "382941",
   "capturedAt": "2024-01-01T09:15:00",
   "confusedScore": 0.72,
   "reason": "fear 수치가 높고 눈썹이 찡그려진 상태로 혼란 신호가 명확합니다."
 }
 ```
 
-**Response `200 OK`**
-
-응답 Body 없음. 처리 성공 시 강사 WebSocket으로 알림이 푸시됩니다.
+**Response `200 OK`** — Body 없음
 
 ---
 
 #### `GET /api/sessions/{sessionId}/alerts`
-세션의 알림 이력을 조회합니다. (최신순)
-
-**Path Parameter**
-
-| 파라미터 | 설명 |
-|----------|------|
-| `sessionId` | 조회할 세션 ID |
+세션 알림 이력을 조회합니다. (최신순)
 
 **Response `200 OK`**
 ```json
 [
   {
     "id": 1,
-    "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+    "sessionId": "382941",
     "studentId": "student_42",
+    "studentName": "홍길동",
     "capturedAt": "2024-01-01T09:15:00",
     "confusedScore": 0.72,
     "reason": "fear 수치가 높고 눈썹이 찡그려진 상태로 혼란 신호가 명확합니다.",
     "unclearTopic": "트랜잭션 격리 수준이란 무엇인가",
+    "lectureText": "지금 설명드리는 트랜잭션 격리 수준은...",
+    "lectureSummary": null,
     "createdAt": "2024-01-01T09:15:01"
   }
 ]
@@ -200,11 +204,14 @@
 ---
 
 #### `GET /api/sessions/{sessionId}/confused-events`
-세션의 confused 이벤트 목록을 조회합니다. (최신순)
+세션의 confused 이벤트 목록을 조회합니다. alerts와 동일한 데이터를 반환합니다.
 
-alerts와 동일한 데이터를 반환합니다.
+---
 
-**Response** — `/api/sessions/{sessionId}/alerts`와 동일
+#### `DELETE /api/alerts/{alertId}`
+강사가 PASS 버튼 클릭 시 알림을 삭제합니다.
+
+**Response `204 No Content`** — Body 없음
 
 ---
 
@@ -213,23 +220,48 @@ alerts와 동일한 데이터를 반환합니다.
 ---
 
 #### `POST /api/lecture-chunk`
-강사 음성의 STT 변환 텍스트를 저장합니다.
-
-강사 브라우저에서 confused 알림 수신 시점 전후의 마이크 청크를 STT로 변환하여 호출합니다. 저장된 토픽은 이후 confused 이벤트 발생 시 `unclearTopic`으로 자동 매칭됩니다.
+강사 음성의 STT 변환 텍스트를 저장합니다. (주기적 저장, 토픽 매칭용)
 
 **Request Body**
 ```json
 {
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "382941",
   "classId": "class-1",
   "topicText": "트랜잭션 격리 수준이란 무엇인가",
   "capturedAt": "2024-01-01T09:14:30"
 }
 ```
 
-**Response `200 OK`**
+**Response `200 OK`** — Body 없음
 
-응답 Body 없음.
+---
+
+### 강의 원문
+
+---
+
+#### `POST /api/lecture-summary`
+이벤트 직후 2분 녹음의 STT 원문을 전송합니다.
+
+STT 원문을 해당 Alert의 `lectureText`에 저장합니다. AI 요약(`lectureSummary`)은 Spring이 처리하지 않으며, 프론트엔드가 FastAPI `/summarize`를 직접 호출합니다.
+
+**Request Body**
+```json
+{
+  "alertId": 1,
+  "sessionId": "382941",
+  "audioText": "지금 설명드리는 트랜잭션 격리 수준은 READ COMMITTED, REPEATABLE READ..."
+}
+```
+
+**Response `200 OK`** — Alert 전체 객체 반환
+
+---
+
+#### `GET /api/alerts/{alertId}/summary`
+Alert 단건 조회입니다. `lectureText` 저장 완료 여부 확인에 사용합니다.
+
+**Response `200 OK`** — Alert 전체 객체 반환
 
 ---
 
@@ -238,7 +270,7 @@ alerts와 동일한 데이터를 반환합니다.
 ---
 
 #### `GET /api/dashboard/classes`
-반별 통계를 조회합니다. 관리자 대시보드에서 사용합니다.
+반별 통계를 조회합니다.
 
 **Response `200 OK`**
 ```json
@@ -252,29 +284,10 @@ alerts와 동일한 데이터를 반환합니다.
       "JPA 연관관계 매핑",
       "인덱스 동작 원리"
     ],
-    "recentAlerts": [
-      {
-        "id": 5,
-        "sessionId": "550e8400-e29b-41d4-a716-446655440000",
-        "studentId": "student_42",
-        "capturedAt": "2024-01-01T09:15:00",
-        "confusedScore": 0.72,
-        "reason": "fear 수치가 높고 눈썹이 찡그려진 상태로 혼란 신호가 명확합니다.",
-        "unclearTopic": "트랜잭션 격리 수준이란 무엇인가",
-        "createdAt": "2024-01-01T09:15:01"
-      }
-    ]
+    "recentAlerts": [ ]
   }
 ]
 ```
-
-| 필드 | 설명 |
-|------|------|
-| `classId` | 반 식별자 |
-| `alertCount` | 총 알림 발생 횟수 |
-| `avgConfusedScore` | 평균 혼란도 점수 |
-| `topTopics` | 자주 혼란이 발생한 강의 내용 (빈도 상위 5개) |
-| `recentAlerts` | 최근 알림 10개 |
 
 ---
 
@@ -286,19 +299,17 @@ alerts와 동일한 데이터를 반환합니다.
 |------|------|
 | 엔드포인트 | `ws://{host}/ws` |
 | 프로토콜 | SockJS + STOMP |
-| 클라이언트 라이브러리 | `@stomp/stompjs` + `sockjs-client` |
 
-### 구독 토픽
+### 구독 토픽 `/topic/alert/{sessionId}`
 
-#### `/topic/alert/{sessionId}`
+`POST /api/confused-events` 수신 즉시 강사에게 푸시됩니다.
 
-강사 브라우저가 구독합니다. `POST /api/confused-events` 수신 시 자동으로 메시지가 전송됩니다.
-
-**수신 메시지 예시**
+**수신 메시지**
 ```json
 {
   "studentId": "student_42",
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "studentName": "홍길동",
+  "sessionId": "382941",
   "confusedScore": 0.72,
   "reason": "fear 수치가 높고 눈썹이 찡그려진 상태로 혼란 신호가 명확합니다.",
   "unclearTopic": "트랜잭션 격리 수준이란 무엇인가",
@@ -314,35 +325,36 @@ alerts와 동일한 데이터를 반환합니다.
 src/main/java/com/iknow/
 ├── IknowApplication.java
 ├── config/
-│   ├── WebSocketConfig.java       # SockJS + STOMP 설정
-│   └── CorsConfig.java            # CORS 전체 허용 (운영 시 도메인 제한 권장)
+│   ├── WebSocketConfig.java          # SockJS + STOMP 설정
+│   └── CorsConfig.java               # CORS 전체 허용
 ├── controller/
-│   ├── SessionController.java     # POST /api/sessions, PATCH /api/sessions/:id/end
-│   ├── ConfusedEventController.java  # POST /api/confused-events, GET /api/sessions/:id/alerts|confused-events
+│   ├── SessionController.java        # POST /api/sessions, PATCH /:id/end
+│   ├── ConfusedEventController.java  # POST /api/confused-events, GET alerts/confused-events
+│   ├── AlertController.java          # DELETE /api/alerts/:alertId
 │   ├── LectureChunkController.java   # POST /api/lecture-chunk
-│   └── DashboardController.java   # GET /api/dashboard/classes
+│   ├── LectureSummaryController.java # POST /api/lecture-summary, GET /api/alerts/:id/summary
+│   └── DashboardController.java      # GET /api/dashboard/classes
 ├── service/
-│   ├── SessionService.java
-│   ├── ConfusedEventService.java  # Alert 저장 + WebSocket 푸시 + 토픽 매칭
+│   ├── SessionService.java           # 6자리 sessionId 생성 (중복 재생성)
+│   ├── ConfusedEventService.java     # Alert 저장 + 토픽 매칭 + WebSocket 푸시
 │   ├── LectureChunkService.java
-│   └── DashboardService.java      # 반별 집계 쿼리
+│   ├── LectureSummaryService.java    # STT 원문(lectureText) 저장만 담당
+│   └── DashboardService.java
 ├── entity/
-│   ├── Session.java
-│   ├── Alert.java
+│   ├── Session.java                  # thresholdPct, curriculum 추가
+│   ├── Alert.java                    # studentName, lectureText, lectureSummary 추가
 │   └── LectureTopic.java
-├── repository/
-│   ├── SessionRepository.java
-│   ├── AlertRepository.java
-│   └── LectureTopicRepository.java
+├── repository/ (3개)
 └── dto/
     ├── request/
-    │   ├── CreateSessionRequest.java
-    │   ├── ConfusedEventRequest.java
-    │   └── LectureChunkRequest.java
+    │   ├── CreateSessionRequest.java      # thresholdPct, curriculum 추가
+    │   ├── ConfusedEventRequest.java      # studentName 추가
+    │   ├── LectureChunkRequest.java
+    │   └── LectureSummaryRequest.java
     └── response/
-        ├── SessionResponse.java
-        ├── AlertResponse.java
-        ├── AlertWebSocketPayload.java
+        ├── SessionResponse.java           # thresholdPct, curriculum 추가
+        ├── AlertResponse.java             # studentName, lectureText, lectureSummary 추가
+        ├── AlertWebSocketPayload.java     # studentName 추가
         └── DashboardClassResponse.java
 
 src/main/resources/
@@ -353,13 +365,21 @@ src/main/resources/
 
 ## 실행 방법
 
-```bash
-# 환경변수 설정 후 실행
-export DB_HOST=localhost
-export DB_NAME=iknow
-export DB_USERNAME=root
-export DB_PASSWORD=password
+### 로컬 실행
 
+```bash
 ./gradlew bootRun
-# → http://localhost:8080
 ```
+
+애플리케이션은 기본적으로 `http://localhost:8080`에서 실행됩니다.
+
+### 테스트 실행
+
+```bash
+./gradlew test
+```
+
+### 참고
+
+- 현재 테스트와 애플리케이션 실행은 `src/main/resources/application.yml`에 설정된 MySQL 연결 정보를 사용합니다.
+- Windows 환경에서는 `gradlew.bat bootRun`, `gradlew.bat test`로 실행할 수 있습니다.

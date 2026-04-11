@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
@@ -19,11 +19,16 @@ public class SessionService {
 
     @Transactional
     public SessionResponse createSession(CreateSessionRequest request) {
+        String sessionId = generateUniqueSessionId();
+
         Session session = Session.builder()
-                .sessionId(UUID.randomUUID().toString())
+                .sessionId(sessionId)
                 .classId(request.getClassId())
+                .thresholdPct(request.getThresholdPct() != null ? request.getThresholdPct() : 50)
+                .curriculum(request.getCurriculum())
                 .status(Session.SessionStatus.ACTIVE)
                 .build();
+
         return SessionResponse.from(sessionRepository.save(session));
     }
 
@@ -34,5 +39,15 @@ public class SessionService {
         session.setStatus(Session.SessionStatus.ENDED);
         session.setEndedAt(LocalDateTime.now());
         return SessionResponse.from(sessionRepository.save(session));
+    }
+
+    // 100000~999999 범위 랜덤 숫자, 중복이면 재생성
+    private String generateUniqueSessionId() {
+        String sessionId;
+        do {
+            int random = ThreadLocalRandom.current().nextInt(100000, 1000000);
+            sessionId = String.valueOf(random);
+        } while (sessionRepository.existsBySessionId(sessionId));
+        return sessionId;
     }
 }

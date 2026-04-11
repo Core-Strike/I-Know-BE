@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 public class SessionResponse {
     private String sessionId;
     private String classId;
+    private Integer thresholdPct;
+    private String curriculum;
     private String status;
     private LocalDateTime startedAt;
     private LocalDateTime endedAt;
@@ -19,6 +21,8 @@ public class SessionResponse {
         return SessionResponse.builder()
                 .sessionId(session.getSessionId())
                 .classId(session.getClassId())
+                .thresholdPct(session.getThresholdPct())
+                .curriculum(session.getCurriculum())
                 .status(session.getStatus().name())
                 .startedAt(session.getStartedAt())
                 .endedAt(session.getEndedAt())

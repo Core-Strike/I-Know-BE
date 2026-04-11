@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 public class LectureChunkRequest {
     private String sessionId;
     private String classId;
-    private String topicText;       // STT 변환 텍스트
     private LocalDateTime capturedAt;
+    private String audioText;
+    private Double confusedScore;
+    private String reason;
 }

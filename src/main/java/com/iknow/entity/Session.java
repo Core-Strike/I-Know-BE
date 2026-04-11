@@ -19,9 +19,14 @@ public class Session {
     private Long id;
 
     @Column(nullable = false, unique = true)
-    private String sessionId;
+    private String sessionId;  // 6자리 숫자 문자열 (100000~999999)
 
     private String classId;
+
+    private Integer thresholdPct;  // 혼란 감지 임계값 % (대시보드 참고용, 기본 50)
+
+    @Column(columnDefinition = "TEXT")
+    private String curriculum;     // 커리큘럼 텍스트 (대시보드 참고용)
 
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
