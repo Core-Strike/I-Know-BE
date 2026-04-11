@@ -53,6 +53,13 @@ public class DashboardService {
     }
 
     private DashboardClassResponse buildClassResponse(String classId, List<Alert> alerts) {
+        long participantCount = alerts.stream()
+                .map(Alert::getStudentId)
+                .filter(Objects::nonNull)
+                .filter(studentId -> !studentId.isBlank())
+                .distinct()
+                .count();
+
         double avgScore = alerts.stream()
                 .filter(a -> a.getConfusedScore() != null)
                 .mapToDouble(Alert::getConfusedScore)
@@ -69,13 +76,13 @@ public class DashboardService {
                 .collect(Collectors.toList());
 
         List<AlertResponse> recentAlerts = alerts.stream()
-                .limit(10)
                 .map(AlertResponse::from)
                 .collect(Collectors.toList());
 
         return DashboardClassResponse.builder()
                 .classId(classId)
                 .alertCount(alerts.size())
+                .participantCount(participantCount)
                 .avgConfusedScore(avgScore)
                 .topTopics(topTopics)
                 .recentAlerts(recentAlerts)

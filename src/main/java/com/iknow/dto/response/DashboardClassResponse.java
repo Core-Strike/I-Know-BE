@@ -10,7 +10,8 @@ import java.util.List;
 public class DashboardClassResponse {
     private String classId;
     private long alertCount;
+    private long participantCount;
     private double avgConfusedScore;
-    private List<String> topTopics;       // 자주 언급된 모르는 내용 (빈도 상위 5개)
-    private List<AlertResponse> recentAlerts;  // 최근 알림 10개
+    private List<String> topTopics;
+    private List<AlertResponse> recentAlerts;
 }
