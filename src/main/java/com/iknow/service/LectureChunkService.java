@@ -20,6 +20,8 @@ public class LectureChunkService {
     public AlertResponse saveLectureChunk(LectureChunkRequest request) {
         Alert alert = Alert.builder()
                 .sessionId(request.getSessionId())
+                .studentCount(request.getStudentCount() != null ? request.getStudentCount() : 1)
+                .totalStudentCount(request.getTotalStudentCount() != null ? request.getTotalStudentCount() : 1)
                 .capturedAt(request.getCapturedAt() != null ? request.getCapturedAt() : LocalDateTime.now())
                 .confusedScore(request.getConfusedScore())
                 .reason(request.getReason())

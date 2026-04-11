@@ -26,6 +26,8 @@ public class ConfusedEventService {
         AlertWebSocketPayload payload = AlertWebSocketPayload.builder()
                 .sessionId(request.getSessionId())
                 .classId(session.getClassId())
+                .studentCount(request.getStudentCount() != null ? request.getStudentCount() : 1)
+                .totalStudentCount(request.getTotalStudentCount() != null ? request.getTotalStudentCount() : 1)
                 .confusedScore(request.getConfusedScore())
                 .reason(request.getReason())
                 .capturedAt(request.getCapturedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))

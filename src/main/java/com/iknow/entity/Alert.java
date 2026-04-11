@@ -25,6 +25,10 @@ public class Alert {
 
     private String studentName;    // 수강생 이름
 
+    private Integer studentCount;
+
+    private Integer totalStudentCount;
+
     @Column(nullable = false)
     private LocalDateTime capturedAt;
 

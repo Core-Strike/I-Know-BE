@@ -10,6 +10,8 @@ import java.time.LocalDateTime;
 public class LectureChunkRequest {
     private String sessionId;
     private String classId;
+    private Integer studentCount;
+    private Integer totalStudentCount;
     private LocalDateTime capturedAt;
     private String audioText;
     private Double confusedScore;

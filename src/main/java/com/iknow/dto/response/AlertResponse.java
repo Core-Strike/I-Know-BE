@@ -13,6 +13,8 @@ public class AlertResponse {
     private String sessionId;
     private String studentId;
     private String studentName;      // 수강생 이름
+    private Integer studentCount;
+    private Integer totalStudentCount;
     private LocalDateTime capturedAt;
     private Double confusedScore;
     private String reason;
@@ -27,6 +29,8 @@ public class AlertResponse {
                 .sessionId(alert.getSessionId())
                 .studentId(alert.getStudentId())
                 .studentName(alert.getStudentName())
+                .studentCount(alert.getStudentCount())
+                .totalStudentCount(alert.getTotalStudentCount())
                 .capturedAt(alert.getCapturedAt())
                 .confusedScore(alert.getConfusedScore())
                 .reason(alert.getReason())
