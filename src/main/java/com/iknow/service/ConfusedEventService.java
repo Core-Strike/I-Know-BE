@@ -30,7 +30,7 @@ public class ConfusedEventService {
                 .curriculum(session.getCurriculum())
                 .studentId(request.getStudentId())
                 .studentName(request.getStudentName())
-                .signalType(normalizeSignalType(request.getSignalType()))
+                .signalType(normalizeSignalType(request.getSignalType(), request.getSignalSubtype()))
                 .signalSubtype(normalizeBlankToNull(request.getSignalSubtype()))
                 .score(request.getConfusedScore())
                 .capturedAt(request.getCapturedAt())
@@ -49,8 +49,11 @@ public class ConfusedEventService {
         messagingTemplate.convertAndSend("/topic/alert/" + request.getSessionId(), payload);
     }
 
-    private String normalizeSignalType(String signalType) {
+    private String normalizeSignalType(String signalType, String signalSubtype) {
         String normalized = normalizeBlankToNull(signalType);
+        if (normalized == null && "MANUAL_BUTTON".equals(normalizeBlankToNull(signalSubtype))) {
+            return "MANUAL_HELP";
+        }
         return normalized != null ? normalized : "FACIAL_INSTABILITY";
     }
 

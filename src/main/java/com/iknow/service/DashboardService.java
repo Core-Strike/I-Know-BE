@@ -139,6 +139,28 @@ public class DashboardService {
             String classId,
             List<Alert> matchedAlerts
     ) {
+        String resolvedCurriculum = matchedAlerts.stream()
+                .map(Alert::getCurriculum)
+                .filter(Objects::nonNull)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining(", "));
+        if (resolvedCurriculum.isBlank()) {
+            resolvedCurriculum = curriculum;
+        }
+
+        String resolvedClassId = matchedAlerts.stream()
+                .map(Alert::getClassId)
+                .filter(Objects::nonNull)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining(", "));
+        if (resolvedClassId.isBlank()) {
+            resolvedClassId = classId;
+        }
+
         int avgConfusion = matchedAlerts.isEmpty()
                 ? 0
                 : (int) Math.round(matchedAlerts.stream()
@@ -169,8 +191,8 @@ public class DashboardService {
 
         return KeywordReportResponse.builder()
                 .keyword(keyword)
-                .curriculum(curriculum)
-                .classId(classId)
+                .curriculum(resolvedCurriculum)
+                .classId(resolvedClassId)
                 .date(date.toString())
                 .alertCount(matchedAlerts.size())
                 .avgUnderstanding(avgUnderstanding)
