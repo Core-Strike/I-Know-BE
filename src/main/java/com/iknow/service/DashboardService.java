@@ -3,8 +3,10 @@ package com.iknow.service;
 import com.iknow.dto.response.AlertResponse;
 import com.iknow.dto.response.DashboardClassResponse;
 import com.iknow.entity.Alert;
+import com.iknow.entity.AlertKeyword;
 import com.iknow.entity.Session;
 import com.iknow.repository.AlertRepository;
+import com.iknow.repository.AlertKeywordRepository;
 import com.iknow.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class DashboardService {
 
     private final SessionRepository sessionRepository;
     private final AlertRepository alertRepository;
+    private final AlertKeywordRepository alertKeywordRepository;
 
     @Transactional(readOnly = true)
     public List<DashboardClassResponse> getDashboardClasses(LocalDate date) {
@@ -53,6 +56,17 @@ public class DashboardService {
     }
 
     private DashboardClassResponse buildClassResponse(String classId, List<Alert> alerts) {
+        List<Long> alertIds = alerts.stream()
+                .map(Alert::getId)
+                .filter(Objects::nonNull)
+                .toList();
+
+        Map<Long, List<String>> keywordsByAlertId = alertKeywordRepository.findByAlertIdIn(alertIds).stream()
+                .collect(Collectors.groupingBy(
+                        AlertKeyword::getAlertId,
+                        Collectors.mapping(AlertKeyword::getKeyword, Collectors.toList())
+                ));
+
         long participantCount = alerts.stream()
                 .map(Alert::getStudentId)
                 .filter(Objects::nonNull)
@@ -76,7 +90,7 @@ public class DashboardService {
                 .collect(Collectors.toList());
 
         List<AlertResponse> recentAlerts = alerts.stream()
-                .map(AlertResponse::from)
+                .map(alert -> AlertResponse.from(alert, keywordsByAlertId.getOrDefault(alert.getId(), List.of())))
                 .collect(Collectors.toList());
 
         return DashboardClassResponse.builder()

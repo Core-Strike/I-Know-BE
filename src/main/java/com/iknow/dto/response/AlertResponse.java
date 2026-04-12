@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Builder
@@ -12,18 +13,19 @@ public class AlertResponse {
     private Long id;
     private String sessionId;
     private String studentId;
-    private String studentName;      // 수강생 이름
+    private String studentName;
     private Integer studentCount;
     private Integer totalStudentCount;
     private LocalDateTime capturedAt;
     private Double confusedScore;
     private String reason;
     private String unclearTopic;
-    private String lectureText;      // 이벤트 직후 2분 녹음 STT 원문
-    private String lectureSummary;   // GPT 요약문
+    private String lectureText;
+    private String lectureSummary;
+    private List<String> keywords;
     private LocalDateTime createdAt;
 
-    public static AlertResponse from(Alert alert) {
+    public static AlertResponse from(Alert alert, List<String> keywords) {
         return AlertResponse.builder()
                 .id(alert.getId())
                 .sessionId(alert.getSessionId())
@@ -37,7 +39,12 @@ public class AlertResponse {
                 .unclearTopic(alert.getUnclearTopic())
                 .lectureText(alert.getLectureText())
                 .lectureSummary(alert.getLectureSummary())
+                .keywords(keywords)
                 .createdAt(alert.getCreatedAt())
                 .build();
+    }
+
+    public static AlertResponse from(Alert alert) {
+        return from(alert, List.of());
     }
 }
