@@ -22,6 +22,7 @@ public class SessionService {
     private static final Duration SESSION_MAX_DURATION = Duration.ofDays(1);
 
     private final CurriculumRepository curriculumRepository;
+    private final SessionParticipantService sessionParticipantService;
     private final SessionRepository sessionRepository;
 
     @Transactional
@@ -101,6 +102,8 @@ public class SessionService {
         if (session.getEndedAt() == null) {
             session.setEndedAt(LocalDateTime.now());
         }
+
+        sessionParticipantService.leaveAllActiveParticipants(session.getSessionId());
 
         SessionResponse response = SessionResponse.from(session);
         sessionRepository.delete(session);

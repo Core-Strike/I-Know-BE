@@ -6,8 +6,10 @@ import com.iknow.dto.response.KeywordReportResponse;
 import com.iknow.entity.Alert;
 import com.iknow.entity.AlertKeyword;
 import com.iknow.entity.Session;
+import com.iknow.entity.SessionParticipant;
 import com.iknow.repository.AlertRepository;
 import com.iknow.repository.AlertKeywordRepository;
+import com.iknow.repository.SessionParticipantRepository;
 import com.iknow.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,6 +33,7 @@ public class DashboardService {
     private final SessionRepository sessionRepository;
     private final AlertRepository alertRepository;
     private final AlertKeywordRepository alertKeywordRepository;
+    private final SessionParticipantRepository sessionParticipantRepository;
 
     @Transactional(readOnly = true)
     public List<DashboardClassResponse> getDashboardClasses(LocalDate date) {
@@ -38,6 +41,7 @@ public class DashboardService {
         LocalDateTime endOfDay = date.plusDays(1).atStartOfDay();
 
         List<Alert> alertsForDate = alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay);
+        List<SessionParticipant> participantsForDate = sessionParticipantRepository.findByJoinedAtBetween(startOfDay, endOfDay);
 
         Set<String> sessionIds = alertsForDate.stream()
                 .map(Alert::getSessionId)
@@ -61,7 +65,7 @@ public class DashboardService {
                 }));
 
         return alertsByClass.entrySet().stream()
-                .map(entry -> buildClassResponse(entry.getKey(), entry.getValue()))
+                .map(entry -> buildClassResponse(entry.getKey(), entry.getValue(), participantsForDate))
                 .collect(Collectors.toList());
     }
 
@@ -137,7 +141,7 @@ public class DashboardService {
                 .build();
     }
 
-    private DashboardClassResponse buildClassResponse(ClassGroupingKey key, List<Alert> alerts) {
+    private DashboardClassResponse buildClassResponse(ClassGroupingKey key, List<Alert> alerts, List<SessionParticipant> participantsForDate) {
         List<Long> alertIds = alerts.stream()
                 .map(Alert::getId)
                 .filter(Objects::nonNull)
@@ -149,16 +153,18 @@ public class DashboardService {
                         Collectors.mapping(AlertKeyword::getKeyword, Collectors.toList())
                 ));
 
-        long participantCount = alerts.stream()
-                .map(Alert::getStudentId)
+        long participantCount = participantsForDate.stream()
+                .filter(participant -> key.curriculum().equals(participant.getCurriculum()))
+                .filter(participant -> key.classId().equals(participant.getClassId()))
+                .map(SessionParticipant::getStudentId)
                 .filter(Objects::nonNull)
                 .filter(studentId -> !studentId.isBlank())
                 .distinct()
                 .count();
 
         double avgScore = alerts.stream()
-                .filter(a -> a.getConfusedScore() != null)
-                .mapToDouble(Alert::getConfusedScore)
+                .filter(a -> (a.getTotalStudentCount() != null && a.getTotalStudentCount() > 0) || a.getConfusedScore() != null)
+                .mapToDouble(a -> calculateConfusionPercent(a) / 100.0)
                 .average()
                 .orElse(0.0);
 
