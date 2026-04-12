@@ -13,6 +13,7 @@ public class DashboardClassResponse {
     private long alertCount;
     private long participantCount;
     private double avgConfusedScore;
+    private List<SignalBreakdownResponse> signalBreakdown;
     private List<String> topTopics;
     private List<AlertResponse> recentAlerts;
 }

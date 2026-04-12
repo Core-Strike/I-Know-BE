@@ -16,4 +16,6 @@ public class ConfusedEventRequest {
     private LocalDateTime capturedAt;
     private Double confusedScore;
     private String reason;
+    private String signalType;
+    private String signalSubtype;
 }

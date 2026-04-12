@@ -2,7 +2,9 @@ package com.iknow.controller;
 
 import com.iknow.dto.request.ConfusedEventRequest;
 import com.iknow.dto.response.AlertResponse;
+import com.iknow.dto.response.LearningSignalEventResponse;
 import com.iknow.repository.AlertRepository;
+import com.iknow.repository.LearningSignalEventRepository;
 import com.iknow.service.ConfusedEventService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,7 @@ public class ConfusedEventController {
 
     private final ConfusedEventService confusedEventService;
     private final AlertRepository alertRepository;
+    private final LearningSignalEventRepository learningSignalEventRepository;
 
     // POST /api/confused-events — 교육생 confused 이벤트 수신 → Alert 저장 + WebSocket 푸시
     @PostMapping("/api/confused-events")
@@ -38,11 +41,11 @@ public class ConfusedEventController {
 
     // GET /api/sessions/:id/confused-events — confused 이벤트 목록
     @GetMapping("/api/sessions/{sessionId}/confused-events")
-    public ResponseEntity<List<AlertResponse>> getConfusedEvents(@PathVariable String sessionId) {
-        List<AlertResponse> events = alertRepository
+    public ResponseEntity<List<LearningSignalEventResponse>> getConfusedEvents(@PathVariable String sessionId) {
+        List<LearningSignalEventResponse> events = learningSignalEventRepository
                 .findBySessionIdOrderByCapturedAtDesc(sessionId)
                 .stream()
-                .map(AlertResponse::from)
+                .map(LearningSignalEventResponse::from)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(events);
     }

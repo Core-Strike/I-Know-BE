@@ -3,12 +3,15 @@ package com.iknow.service;
 import com.iknow.dto.response.AlertResponse;
 import com.iknow.dto.response.DashboardClassResponse;
 import com.iknow.dto.response.KeywordReportResponse;
+import com.iknow.dto.response.SignalBreakdownResponse;
 import com.iknow.entity.Alert;
 import com.iknow.entity.AlertKeyword;
+import com.iknow.entity.LearningSignalEvent;
 import com.iknow.entity.Session;
 import com.iknow.entity.SessionParticipant;
-import com.iknow.repository.AlertRepository;
 import com.iknow.repository.AlertKeywordRepository;
+import com.iknow.repository.AlertRepository;
+import com.iknow.repository.LearningSignalEventRepository;
 import com.iknow.repository.SessionParticipantRepository;
 import com.iknow.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,6 +37,7 @@ public class DashboardService {
     private final SessionRepository sessionRepository;
     private final AlertRepository alertRepository;
     private final AlertKeywordRepository alertKeywordRepository;
+    private final LearningSignalEventRepository learningSignalEventRepository;
     private final SessionParticipantRepository sessionParticipantRepository;
 
     @Transactional(readOnly = true)
@@ -41,12 +46,18 @@ public class DashboardService {
         LocalDateTime endOfDay = date.plusDays(1).atStartOfDay();
 
         List<Alert> alertsForDate = alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay);
+        List<LearningSignalEvent> signalsForDate = learningSignalEventRepository.findByCapturedAtBetween(startOfDay, endOfDay);
         List<SessionParticipant> participantsForDate = sessionParticipantRepository.findByJoinedAtBetween(startOfDay, endOfDay);
 
-        Set<String> sessionIds = alertsForDate.stream()
+        Set<String> sessionIds = new LinkedHashSet<>();
+        alertsForDate.stream()
                 .map(Alert::getSessionId)
                 .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+                .forEach(sessionIds::add);
+        signalsForDate.stream()
+                .map(LearningSignalEvent::getSessionId)
+                .filter(Objects::nonNull)
+                .forEach(sessionIds::add);
 
         Map<String, Session> sessionBySessionId = sessionRepository.findAllBySessionIdIn(sessionIds)
                 .stream()
@@ -60,21 +71,36 @@ public class DashboardService {
                 ));
 
         Map<ClassGroupingKey, List<Alert>> alertsByClass = alertsForDate.stream()
-                .collect(Collectors.groupingBy(alert -> {
-                    Session session = sessionBySessionId.get(alert.getSessionId());
-                    SessionParticipant participant = participantSnapshotBySessionId.get(alert.getSessionId());
-                    String curriculum = session != null && session.getCurriculum() != null
-                            ? session.getCurriculum()
-                            : (alert.getCurriculum() != null ? alert.getCurriculum() : (participant != null ? participant.getCurriculum() : ""));
-                    String classId = session != null && session.getClassId() != null
-                            ? session.getClassId()
-                            : (alert.getClassId() != null ? alert.getClassId() : (participant != null ? participant.getClassId() : "unknown"));
-                    return new ClassGroupingKey(curriculum, classId);
-                }));
+                .collect(Collectors.groupingBy(alert -> resolveClassGroupingKey(
+                        alert.getSessionId(),
+                        alert.getCurriculum(),
+                        alert.getClassId(),
+                        sessionBySessionId,
+                        participantSnapshotBySessionId
+                )));
+        Map<ClassGroupingKey, List<LearningSignalEvent>> signalsByClass = signalsForDate.stream()
+                .collect(Collectors.groupingBy(signal -> resolveClassGroupingKey(
+                        signal.getSessionId(),
+                        signal.getCurriculum(),
+                        signal.getClassId(),
+                        sessionBySessionId,
+                        participantSnapshotBySessionId
+                )));
 
-        return alertsByClass.entrySet().stream()
-                .map(entry -> buildClassResponse(entry.getKey(), entry.getValue(), participantsForDate))
-                .collect(Collectors.toList());
+        Set<ClassGroupingKey> groupingKeys = new LinkedHashSet<>();
+        groupingKeys.addAll(alertsByClass.keySet());
+        groupingKeys.addAll(signalsByClass.keySet());
+
+        return groupingKeys.stream()
+                .map(key -> buildClassResponse(
+                        key,
+                        alertsByClass.getOrDefault(key, List.of()),
+                        signalsByClass.getOrDefault(key, List.of()),
+                        participantsForDate
+                ))
+                .sorted(Comparator.comparing(DashboardClassResponse::getCurriculum, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(DashboardClassResponse::getClassId, Comparator.nullsLast(String::compareTo)))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -106,13 +132,19 @@ public class DashboardService {
         return buildKeywordReport(date, normalizedKeyword, curriculum, classId, matchedAlerts);
     }
 
-    private KeywordReportResponse buildKeywordReport(LocalDate date, String keyword, String curriculum, String classId, List<Alert> matchedAlerts) {
+    private KeywordReportResponse buildKeywordReport(
+            LocalDate date,
+            String keyword,
+            String curriculum,
+            String classId,
+            List<Alert> matchedAlerts
+    ) {
         int avgConfusion = matchedAlerts.isEmpty()
                 ? 0
                 : (int) Math.round(matchedAlerts.stream()
-                        .mapToInt(this::calculateConfusionPercent)
-                        .average()
-                        .orElse(0.0));
+                .mapToInt(this::calculateConfusionPercent)
+                .average()
+                .orElse(0.0));
         int avgUnderstanding = Math.max(0, 100 - avgConfusion);
         int reinforcementNeed = avgConfusion;
 
@@ -123,7 +155,7 @@ public class DashboardService {
                 : "낮음";
 
         String report = matchedAlerts.isEmpty()
-                ? String.format("'%s' 키워드와 연결된 알림이 아직 없습니다.", keyword)
+                ? String.format("'%s' 키워지와 연결된 알림이 아직 없습니다.", keyword)
                 : String.format("'%s' 관련 알림은 %d건이며 평균 이해도는 %d%%입니다. 보충 필요도는 %s(%d%%)로 판단됩니다.",
                 keyword, matchedAlerts.size(), avgUnderstanding, reinforcementLevel, reinforcementNeed);
 
@@ -149,7 +181,12 @@ public class DashboardService {
                 .build();
     }
 
-    private DashboardClassResponse buildClassResponse(ClassGroupingKey key, List<Alert> alerts, List<SessionParticipant> participantsForDate) {
+    private DashboardClassResponse buildClassResponse(
+            ClassGroupingKey key,
+            List<Alert> alerts,
+            List<LearningSignalEvent> signals,
+            List<SessionParticipant> participantsForDate
+    ) {
         List<Long> alertIds = alerts.stream()
                 .map(Alert::getId)
                 .filter(Objects::nonNull)
@@ -183,11 +220,24 @@ public class DashboardService {
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(5)
                 .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
+                .toList();
 
         List<AlertResponse> recentAlerts = alerts.stream()
                 .map(alert -> AlertResponse.from(alert, keywordsByAlertId.getOrDefault(alert.getId(), List.of())))
-                .collect(Collectors.toList());
+                .toList();
+
+        double signalDenominator = Math.max(1, signals.size());
+        List<SignalBreakdownResponse> signalBreakdown = signals.stream()
+                .collect(Collectors.groupingBy(LearningSignalEvent::getSignalType, Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(entry -> SignalBreakdownResponse.builder()
+                        .signalType(entry.getKey())
+                        .label(getSignalLabel(entry.getKey()))
+                        .count(entry.getValue())
+                        .ratio(entry.getValue() / signalDenominator)
+                        .build())
+                .toList();
 
         return DashboardClassResponse.builder()
                 .curriculum(key.curriculum())
@@ -195,9 +245,39 @@ public class DashboardService {
                 .alertCount(alerts.size())
                 .participantCount(participantCount)
                 .avgConfusedScore(avgScore)
+                .signalBreakdown(signalBreakdown)
                 .topTopics(topTopics)
                 .recentAlerts(recentAlerts)
                 .build();
+    }
+
+    private ClassGroupingKey resolveClassGroupingKey(
+            String sessionId,
+            String snapshotCurriculum,
+            String snapshotClassId,
+            Map<String, Session> sessionBySessionId,
+            Map<String, SessionParticipant> participantSnapshotBySessionId
+    ) {
+        Session session = sessionId != null ? sessionBySessionId.get(sessionId) : null;
+        SessionParticipant participant = sessionId != null ? participantSnapshotBySessionId.get(sessionId) : null;
+
+        String curriculum = session != null && session.getCurriculum() != null
+                ? session.getCurriculum()
+                : (snapshotCurriculum != null ? snapshotCurriculum : (participant != null ? participant.getCurriculum() : ""));
+        String classId = session != null && session.getClassId() != null
+                ? session.getClassId()
+                : (snapshotClassId != null ? snapshotClassId : (participant != null ? participant.getClassId() : "unknown"));
+
+        return new ClassGroupingKey(curriculum, classId);
+    }
+
+    private String getSignalLabel(String signalType) {
+        return switch (signalType) {
+            case "GAZE_AWAY" -> "시선 이탈 / 화면 이탈";
+            case "MANUAL_HELP" -> "학생 직접 반응";
+            case "FACIAL_INSTABILITY" -> "표정 기반 불안정";
+            default -> "기타 신호";
+        };
     }
 
     private FilteredAlertContext getFilteredAlertContext(LocalDate date, String curriculum, String classId) {
@@ -222,19 +302,21 @@ public class DashboardService {
                 ));
 
         List<Alert> filteredAlerts = alertsForDate.stream()
-                .filter(alert -> matchesCurriculum(sessionBySessionId.get(alert.getSessionId()), alert, participantSnapshotBySessionId.get(alert.getSessionId()), curriculum))
-                .filter(alert -> matchesClassId(sessionBySessionId.get(alert.getSessionId()), alert, participantSnapshotBySessionId.get(alert.getSessionId()), classId))
+                .filter(alert -> matchesCurriculum(
+                        sessionBySessionId.get(alert.getSessionId()),
+                        alert,
+                        participantSnapshotBySessionId.get(alert.getSessionId()),
+                        curriculum
+                ))
+                .filter(alert -> matchesClassId(
+                        sessionBySessionId.get(alert.getSessionId()),
+                        alert,
+                        participantSnapshotBySessionId.get(alert.getSessionId()),
+                        classId
+                ))
                 .toList();
 
         return new FilteredAlertContext(filteredAlerts, sessionBySessionId);
-    }
-
-    private boolean matchesCurriculum(Session session, String curriculum) {
-        return matchesCurriculum(session, null, null, curriculum);
-    }
-
-    private boolean matchesCurriculum(Session session, Alert alert, String curriculum) {
-        return matchesCurriculum(session, alert, null, curriculum);
     }
 
     private boolean matchesCurriculum(Session session, Alert alert, SessionParticipant participant, String curriculum) {
@@ -248,14 +330,6 @@ public class DashboardService {
             return true;
         }
         return participant != null && curriculum.equals(participant.getCurriculum());
-    }
-
-    private boolean matchesClassId(Session session, String classId) {
-        return matchesClassId(session, null, null, classId);
-    }
-
-    private boolean matchesClassId(Session session, Alert alert, String classId) {
-        return matchesClassId(session, alert, null, classId);
     }
 
     private boolean matchesClassId(Session session, Alert alert, SessionParticipant participant, String classId) {
