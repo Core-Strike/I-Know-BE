@@ -3,6 +3,7 @@ package com.iknow.service;
 import com.iknow.dto.request.CreateSessionRequest;
 import com.iknow.dto.response.SessionResponse;
 import com.iknow.entity.Session;
+import com.iknow.repository.CurriculumRepository;
 import com.iknow.repository.SessionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,17 +21,25 @@ public class SessionService {
 
     private static final Duration SESSION_MAX_DURATION = Duration.ofDays(1);
 
+    private final CurriculumRepository curriculumRepository;
     private final SessionRepository sessionRepository;
 
     @Transactional
     public SessionResponse createSession(CreateSessionRequest request) {
         String sessionId = generateUniqueSessionId();
+        String curriculum = request.getCurriculum() == null ? "" : request.getCurriculum().trim();
+        if (curriculum.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Curriculum is required");
+        }
+        if (!curriculumRepository.existsByName(curriculum)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown curriculum: " + curriculum);
+        }
 
         Session session = Session.builder()
                 .sessionId(sessionId)
                 .classId(request.getClassId())
                 .thresholdPct(request.getThresholdPct() != null ? request.getThresholdPct() : 50)
-                .curriculum(request.getCurriculum())
+                .curriculum(curriculum)
                 .status(Session.SessionStatus.ACTIVE)
                 .build();
 
