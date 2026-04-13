@@ -23,8 +23,11 @@ public class DashboardController {
 
     // GET /api/dashboard/classes — 반별 통계 (대시보드용)
     @GetMapping("/classes")
-    public ResponseEntity<List<DashboardClassResponse>> getDashboardClasses(@RequestParam LocalDate date) {
-        return ResponseEntity.ok(dashboardService.getDashboardClasses(date));
+    public ResponseEntity<List<DashboardClassResponse>> getDashboardClasses(
+            @RequestParam LocalDate date,
+            @RequestParam(required = false) String curriculum
+    ) {
+        return ResponseEntity.ok(dashboardService.getDashboardClasses(date, curriculum));
     }
 
     @GetMapping("/keyword-report")

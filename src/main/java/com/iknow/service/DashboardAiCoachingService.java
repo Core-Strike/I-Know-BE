@@ -27,8 +27,7 @@ public class DashboardAiCoachingService {
     private final DashboardService dashboardService;
 
     public DashboardAiCoachingDataResponse getCoachingData(DashboardAiCoachingRequest request) {
-        List<DashboardClassResponse> filteredItems = dashboardService.getDashboardClasses(request.getDate()).stream()
-                .filter(item -> request.getCurriculum() == null || request.getCurriculum().isBlank() || request.getCurriculum().equals(item.getCurriculum()))
+        List<DashboardClassResponse> filteredItems = dashboardService.getDashboardClasses(request.getDate(), request.getCurriculum()).stream()
                 .filter(item -> request.getClassId() == null || request.getClassId().isBlank() || ALL_CLASSES.equals(request.getClassId()) || request.getClassId().equals(item.getClassId()))
                 .toList();
 

@@ -8,4 +8,5 @@ import java.util.List;
 
 public interface UnderstandingDifficultyTrendRepository extends JpaRepository<UnderstandingDifficultyTrend, Long> {
     List<UnderstandingDifficultyTrend> findByCapturedAtBetween(LocalDateTime start, LocalDateTime end);
+    List<UnderstandingDifficultyTrend> findByCapturedAtBetweenAndCurriculum(LocalDateTime start, LocalDateTime end, String curriculum);
 }

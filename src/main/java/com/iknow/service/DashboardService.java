@@ -48,15 +48,21 @@ public class DashboardService {
     private final UnderstandingDifficultyTrendRepository understandingDifficultyTrendRepository;
 
     @Transactional(readOnly = true)
-    public List<DashboardClassResponse> getDashboardClasses(LocalDate date) {
+    public List<DashboardClassResponse> getDashboardClasses(LocalDate date, String curriculum) {
         LocalDateTime startOfDay = date.atStartOfDay();
         LocalDateTime endOfDay = date.plusDays(1).atStartOfDay();
+        String normalizedCurriculum = curriculum == null ? "" : curriculum.trim();
 
-        List<Alert> alertsForDate = alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay);
-        List<LearningSignalEvent> signalsForDate = learningSignalEventRepository.findByCapturedAtBetween(startOfDay, endOfDay);
+        List<Alert> alertsForDate = normalizedCurriculum.isBlank()
+                ? alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay)
+                : alertRepository.findByCapturedAtBetweenAndCurriculumOrderByCapturedAtDesc(startOfDay, endOfDay, normalizedCurriculum);
+        List<LearningSignalEvent> signalsForDate = normalizedCurriculum.isBlank()
+                ? learningSignalEventRepository.findByCapturedAtBetween(startOfDay, endOfDay)
+                : learningSignalEventRepository.findByCapturedAtBetweenAndCurriculum(startOfDay, endOfDay, normalizedCurriculum);
         List<SessionParticipant> participantsForDate = sessionParticipantRepository.findByJoinedAtBetween(startOfDay, endOfDay);
-        List<UnderstandingDifficultyTrend> difficultyTrendsForDate =
-                understandingDifficultyTrendRepository.findByCapturedAtBetween(startOfDay, endOfDay);
+        List<UnderstandingDifficultyTrend> difficultyTrendsForDate = normalizedCurriculum.isBlank()
+                ? understandingDifficultyTrendRepository.findByCapturedAtBetween(startOfDay, endOfDay)
+                : understandingDifficultyTrendRepository.findByCapturedAtBetweenAndCurriculum(startOfDay, endOfDay, normalizedCurriculum);
 
         Set<String> sessionIds = new LinkedHashSet<>();
         alertsForDate.stream()
@@ -123,6 +129,7 @@ public class DashboardService {
                 ))
                 .sorted(Comparator.comparing(DashboardClassResponse::getCurriculum, Comparator.nullsLast(String::compareTo))
                         .thenComparing(DashboardClassResponse::getClassId, Comparator.nullsLast(String::compareTo)))
+                .filter(item -> normalizedCurriculum.isBlank() || normalizedCurriculum.equals(item.getCurriculum()))
                 .toList();
     }
 
