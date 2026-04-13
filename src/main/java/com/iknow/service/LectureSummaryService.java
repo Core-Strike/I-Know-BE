@@ -72,7 +72,7 @@ public class LectureSummaryService {
                     return words.length <= 3 ? keyword : String.join(" ", words[0], words[1], words[2]);
                 })
                 .distinct()
-                .limit(3)
+                .limit(5)
                 .toList();
     }
 }
