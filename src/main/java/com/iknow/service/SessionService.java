@@ -14,7 +14,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,6 +27,7 @@ public class SessionService {
     private static final Duration SESSION_MAX_DURATION = Duration.ofDays(1);
     private static final String SESSION_ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     private static final int SESSION_ID_LENGTH = 8;
+    private static final ConcurrentMap<String, ReentrantLock> SESSION_SCOPE_LOCKS = new ConcurrentHashMap<>();
 
     private final CurriculumRepository curriculumRepository;
     private final SessionParticipantService sessionParticipantService;
@@ -31,7 +35,6 @@ public class SessionService {
 
     @Transactional
     public SessionResponse createSession(CreateSessionRequest request) {
-        String sessionId = generateUniqueSessionId();
         String curriculum = normalizeOptional(request.getCurriculum());
         String classId = normalizeOptional(request.getClassId());
         if (curriculum.isBlank()) {
@@ -41,17 +44,27 @@ public class SessionService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown curriculum: " + curriculum);
         }
 
-        terminateExistingSessionsForScope(curriculum, classId);
+        ReentrantLock scopeLock = SESSION_SCOPE_LOCKS.computeIfAbsent(buildScopeKey(curriculum, classId), key -> new ReentrantLock());
+        scopeLock.lock();
+        try {
+            String sessionId = generateUniqueSessionId();
+            terminateExistingSessionsForScope(curriculum, classId);
 
-        Session session = Session.builder()
-                .sessionId(sessionId)
-                .classId(classId)
-                .thresholdPct(request.getThresholdPct() != null ? request.getThresholdPct() : 50)
-                .curriculum(curriculum)
-                .status(Session.SessionStatus.ACTIVE)
-                .build();
+            Session session = Session.builder()
+                    .sessionId(sessionId)
+                    .classId(classId)
+                    .thresholdPct(request.getThresholdPct() != null ? request.getThresholdPct() : 50)
+                    .curriculum(curriculum)
+                    .status(Session.SessionStatus.ACTIVE)
+                    .build();
 
-        return SessionResponse.from(sessionRepository.save(session), 0L);
+            return SessionResponse.from(sessionRepository.save(session), 0L);
+        } finally {
+            scopeLock.unlock();
+            if (!scopeLock.hasQueuedThreads()) {
+                SESSION_SCOPE_LOCKS.remove(buildScopeKey(curriculum, classId), scopeLock);
+            }
+        }
     }
 
     @Transactional
@@ -102,6 +115,7 @@ public class SessionService {
             if (session.getEndedAt() == null) {
                 session.setEndedAt(expiresAt);
             }
+            sessionParticipantService.leaveAllActiveParticipants(session.getSessionId());
         }
     }
 
@@ -119,13 +133,17 @@ public class SessionService {
     }
 
     private void terminateExistingSessionsForScope(String curriculum, String classId) {
-        List<Session> existingSessions = sessionRepository.findAllByStatusAndCurriculumAndClassId(
+        List<Session> existingSessions = sessionRepository.findActiveSessionsForScope(
                 Session.SessionStatus.ACTIVE,
                 curriculum,
                 classId
         );
 
         existingSessions.forEach(this::terminateSession);
+    }
+
+    private String buildScopeKey(String curriculum, String classId) {
+        return curriculum + "::" + classId;
     }
 
     private String normalizeOptional(String value) {
