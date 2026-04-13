@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DashboardService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final Duration KEYWORD_REPORT_TREND_WINDOW = Duration.ofMinutes(2);
 
     private final SessionRepository sessionRepository;
     private final AlertRepository alertRepository;
@@ -182,14 +184,12 @@ public class DashboardService {
             resolvedClassId = classId;
         }
 
-        int avgConfusion = matchedAlerts.isEmpty()
-                ? 0
-                : (int) Math.round(matchedAlerts.stream()
-                .mapToInt(this::calculateConfusionPercent)
-                .average()
-                .orElse(0.0));
-        int avgUnderstanding = Math.max(0, 100 - avgConfusion);
-        int reinforcementNeed = avgConfusion;
+        int reinforcementNeed = calculateReinforcementNeedFromTrends(
+                curriculum,
+                classId,
+                matchedAlerts
+        );
+        int avgUnderstanding = Math.max(0, 100 - reinforcementNeed);
 
         String reinforcementLevel = reinforcementNeed >= 70
                 ? "높음"
@@ -222,6 +222,81 @@ public class DashboardService {
                 .report(report)
                 .occurrenceTimes(occurrenceTimes)
                 .build();
+    }
+
+    private int calculateReinforcementNeedFromTrends(
+            String curriculum,
+            String classId,
+            List<Alert> matchedAlerts
+    ) {
+        List<Alert> alertsWithCapturedAt = matchedAlerts.stream()
+                .filter(alert -> alert.getCapturedAt() != null)
+                .toList();
+
+        if (alertsWithCapturedAt.isEmpty()) {
+            return 0;
+        }
+
+        LocalDateTime rangeStart = alertsWithCapturedAt.stream()
+                .map(Alert::getCapturedAt)
+                .min(LocalDateTime::compareTo)
+                .orElseThrow()
+                .minus(KEYWORD_REPORT_TREND_WINDOW);
+        LocalDateTime rangeEnd = alertsWithCapturedAt.stream()
+                .map(Alert::getCapturedAt)
+                .max(LocalDateTime::compareTo)
+                .orElseThrow()
+                .plus(KEYWORD_REPORT_TREND_WINDOW);
+
+        double averageDifficulty = understandingDifficultyTrendRepository.findByCapturedAtBetween(rangeStart, rangeEnd).stream()
+                .filter(trend -> matchesTrendScope(trend, curriculum, classId, alertsWithCapturedAt))
+                .filter(trend -> isWithinAnyKeywordWindow(trend.getCapturedAt(), alertsWithCapturedAt))
+                .mapToDouble(trend -> trend.getDifficultyScore() != null ? trend.getDifficultyScore() : 0.0)
+                .average()
+                .orElse(0.0);
+
+        return (int) Math.round(Math.max(0.0, Math.min(100.0, averageDifficulty)));
+    }
+
+    private boolean matchesTrendScope(
+            UnderstandingDifficultyTrend trend,
+            String curriculum,
+            String classId,
+            List<Alert> matchedAlerts
+    ) {
+        boolean matchesCurriculum = hasText(curriculum)
+                ? curriculum.equals(trend.getCurriculum())
+                : matchedAlerts.stream()
+                .map(Alert::getCurriculum)
+                .filter(this::hasText)
+                .anyMatch(value -> value.equals(trend.getCurriculum()));
+
+        boolean matchesClassId = hasText(classId)
+                ? classId.equals(trend.getClassId())
+                : matchedAlerts.stream()
+                .map(Alert::getClassId)
+                .filter(this::hasText)
+                .anyMatch(value -> value.equals(trend.getClassId()));
+
+        return matchesCurriculum && matchesClassId;
+    }
+
+    private boolean isWithinAnyKeywordWindow(LocalDateTime trendCapturedAt, List<Alert> matchedAlerts) {
+        if (trendCapturedAt == null) {
+            return false;
+        }
+
+        return matchedAlerts.stream()
+                .map(Alert::getCapturedAt)
+                .filter(Objects::nonNull)
+                .anyMatch(alertCapturedAt ->
+                        !trendCapturedAt.isBefore(alertCapturedAt.minus(KEYWORD_REPORT_TREND_WINDOW))
+                                && !trendCapturedAt.isAfter(alertCapturedAt.plus(KEYWORD_REPORT_TREND_WINDOW))
+                );
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private DashboardClassResponse buildClassResponse(
