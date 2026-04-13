@@ -32,6 +32,10 @@ public class SessionParticipantService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Session is not active: " + sessionId);
         }
 
+        LocalDateTime now = LocalDateTime.now();
+        List<SessionParticipant> activeParticipants = sessionParticipantRepository
+                .findBySessionIdAndStudentIdAndActiveTrue(sessionId, studentId);
+
         SessionParticipant participant = sessionParticipantRepository
                 .findTopBySessionIdAndStudentIdOrderByJoinedAtDesc(sessionId, studentId)
                 .orElse(SessionParticipant.builder()
@@ -39,13 +43,20 @@ public class SessionParticipantService {
                         .studentId(studentId)
                         .build());
 
+        activeParticipants.stream()
+                .filter(existing -> !existing.getId().equals(participant.getId()))
+                .forEach(existing -> {
+                    existing.setActive(false);
+                    existing.setLeftAt(now);
+                });
+
         participant.setClassId(session.getClassId());
         participant.setCurriculum(session.getCurriculum());
         participant.setStudentName(studentName);
         participant.setActive(true);
         participant.setLeftAt(null);
         if (participant.getId() != null) {
-            participant.setJoinedAt(LocalDateTime.now());
+            participant.setJoinedAt(now);
         }
 
         sessionParticipantRepository.save(participant);
@@ -74,7 +85,7 @@ public class SessionParticipantService {
 
     @Transactional(readOnly = true)
     public long countActiveParticipants(String sessionId) {
-        return sessionParticipantRepository.countBySessionIdAndActiveTrue(sessionId);
+        return sessionParticipantRepository.countDistinctActiveStudentsBySessionId(sessionId);
     }
 
     private String normalizeRequired(String value, String message) {

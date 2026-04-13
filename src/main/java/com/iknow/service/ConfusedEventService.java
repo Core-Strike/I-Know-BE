@@ -9,6 +9,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.format.DateTimeFormatter;
 
@@ -46,7 +48,21 @@ public class ConfusedEventService {
                 .capturedAt(request.getCapturedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
                 .build();
 
-        messagingTemplate.convertAndSend("/topic/alert/" + request.getSessionId(), payload);
+        sendAlertAfterCommit(request.getSessionId(), payload);
+    }
+
+    private void sendAlertAfterCommit(String sessionId, AlertWebSocketPayload payload) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            messagingTemplate.convertAndSend("/topic/alert/" + sessionId, payload);
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                messagingTemplate.convertAndSend("/topic/alert/" + sessionId, payload);
+            }
+        });
     }
 
     private String normalizeSignalType(String signalType, String signalSubtype) {
