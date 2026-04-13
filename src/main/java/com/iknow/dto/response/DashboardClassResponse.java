@@ -14,6 +14,7 @@ public class DashboardClassResponse {
     private long participantCount;
     private double avgConfusedScore;
     private List<SignalBreakdownResponse> signalBreakdown;
+    private List<DifficultyTrendPointResponse> difficultyTrend;
     private List<String> topTopics;
     private List<AlertResponse> recentAlerts;
 }

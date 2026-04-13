@@ -1,6 +1,7 @@
 package com.iknow.service;
 
 import com.iknow.dto.response.AlertResponse;
+import com.iknow.dto.response.DifficultyTrendPointResponse;
 import com.iknow.dto.response.DashboardClassResponse;
 import com.iknow.dto.response.KeywordReportResponse;
 import com.iknow.dto.response.SignalBreakdownResponse;
@@ -9,11 +10,13 @@ import com.iknow.entity.AlertKeyword;
 import com.iknow.entity.LearningSignalEvent;
 import com.iknow.entity.Session;
 import com.iknow.entity.SessionParticipant;
+import com.iknow.entity.UnderstandingDifficultyTrend;
 import com.iknow.repository.AlertKeywordRepository;
 import com.iknow.repository.AlertRepository;
 import com.iknow.repository.LearningSignalEventRepository;
 import com.iknow.repository.SessionParticipantRepository;
 import com.iknow.repository.SessionRepository;
+import com.iknow.repository.UnderstandingDifficultyTrendRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +25,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +43,7 @@ public class DashboardService {
     private final AlertKeywordRepository alertKeywordRepository;
     private final LearningSignalEventRepository learningSignalEventRepository;
     private final SessionParticipantRepository sessionParticipantRepository;
+    private final UnderstandingDifficultyTrendRepository understandingDifficultyTrendRepository;
 
     @Transactional(readOnly = true)
     public List<DashboardClassResponse> getDashboardClasses(LocalDate date) {
@@ -48,6 +53,8 @@ public class DashboardService {
         List<Alert> alertsForDate = alertRepository.findByCapturedAtBetweenOrderByCapturedAtDesc(startOfDay, endOfDay);
         List<LearningSignalEvent> signalsForDate = learningSignalEventRepository.findByCapturedAtBetween(startOfDay, endOfDay);
         List<SessionParticipant> participantsForDate = sessionParticipantRepository.findByJoinedAtBetween(startOfDay, endOfDay);
+        List<UnderstandingDifficultyTrend> difficultyTrendsForDate =
+                understandingDifficultyTrendRepository.findByCapturedAtBetween(startOfDay, endOfDay);
 
         Set<String> sessionIds = new LinkedHashSet<>();
         alertsForDate.stream()
@@ -56,6 +63,10 @@ public class DashboardService {
                 .forEach(sessionIds::add);
         signalsForDate.stream()
                 .map(LearningSignalEvent::getSessionId)
+                .filter(Objects::nonNull)
+                .forEach(sessionIds::add);
+        difficultyTrendsForDate.stream()
+                .map(UnderstandingDifficultyTrend::getSessionId)
                 .filter(Objects::nonNull)
                 .forEach(sessionIds::add);
 
@@ -86,16 +97,26 @@ public class DashboardService {
                         sessionBySessionId,
                         participantSnapshotBySessionId
                 )));
+        Map<ClassGroupingKey, List<UnderstandingDifficultyTrend>> difficultyTrendsByClass = difficultyTrendsForDate.stream()
+                .collect(Collectors.groupingBy(trend -> resolveClassGroupingKey(
+                        trend.getSessionId(),
+                        trend.getCurriculum(),
+                        trend.getClassId(),
+                        sessionBySessionId,
+                        participantSnapshotBySessionId
+                )));
 
         Set<ClassGroupingKey> groupingKeys = new LinkedHashSet<>();
         groupingKeys.addAll(alertsByClass.keySet());
         groupingKeys.addAll(signalsByClass.keySet());
+        groupingKeys.addAll(difficultyTrendsByClass.keySet());
 
         return groupingKeys.stream()
                 .map(key -> buildClassResponse(
                         key,
                         alertsByClass.getOrDefault(key, List.of()),
                         signalsByClass.getOrDefault(key, List.of()),
+                        difficultyTrendsByClass.getOrDefault(key, List.of()),
                         participantsForDate
                 ))
                 .sorted(Comparator.comparing(DashboardClassResponse::getCurriculum, Comparator.nullsLast(String::compareTo))
@@ -207,6 +228,7 @@ public class DashboardService {
             ClassGroupingKey key,
             List<Alert> alerts,
             List<LearningSignalEvent> signals,
+            List<UnderstandingDifficultyTrend> difficultyTrends,
             List<SessionParticipant> participantsForDate
     ) {
         List<Long> alertIds = alerts.stream()
@@ -261,6 +283,8 @@ public class DashboardService {
                         .build())
                 .toList();
 
+        List<DifficultyTrendPointResponse> difficultyTrend = buildDifficultyTrend(difficultyTrends);
+
         return DashboardClassResponse.builder()
                 .curriculum(key.curriculum())
                 .classId(key.classId())
@@ -268,9 +292,33 @@ public class DashboardService {
                 .participantCount(participantCount)
                 .avgConfusedScore(avgScore)
                 .signalBreakdown(signalBreakdown)
+                .difficultyTrend(difficultyTrend)
                 .topTopics(topTopics)
                 .recentAlerts(recentAlerts)
                 .build();
+    }
+
+    private List<DifficultyTrendPointResponse> buildDifficultyTrend(List<UnderstandingDifficultyTrend> difficultyTrends) {
+        Map<Integer, TrendAccumulator> accumulatorByHour = new HashMap<>();
+
+        for (UnderstandingDifficultyTrend trend : difficultyTrends) {
+            if (trend.getCapturedAt() == null || trend.getDifficultyScore() == null) {
+                continue;
+            }
+
+            int hour = trend.getCapturedAt().getHour();
+            TrendAccumulator accumulator = accumulatorByHour.computeIfAbsent(hour, ignored -> new TrendAccumulator());
+            accumulator.add(trend.getDifficultyScore());
+        }
+
+        return accumulatorByHour.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> DifficultyTrendPointResponse.builder()
+                        .time(String.format("%02d:00", entry.getKey()))
+                        .avgDifficultyScore(entry.getValue().average())
+                        .sampleCount(entry.getValue().count())
+                        .build())
+                .toList();
     }
 
     private ClassGroupingKey resolveClassGroupingKey(
@@ -378,5 +426,23 @@ public class DashboardService {
     }
 
     private record ClassGroupingKey(String curriculum, String classId) {
+    }
+
+    private static class TrendAccumulator {
+        private double total;
+        private long count;
+
+        void add(double value) {
+            total += value;
+            count += 1;
+        }
+
+        double average() {
+            return count > 0 ? total / count : 0.0;
+        }
+
+        long count() {
+            return count;
+        }
     }
 }
