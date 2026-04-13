@@ -3,16 +3,6 @@
 실시간 학습 신호, 강의 요약, 대시보드 집계를 담당하는 `iKnow` 백엔드입니다.  
 학생 클라이언트에서 발생한 학습 신호와 강의 텍스트를 저장하고, 강사 대시보드에 실시간 알림과 수업 단위 분석 데이터를 제공합니다.
 
-## 이번 README 반영 기준
-
-- 마지막으로 `README.md`가 수정된 커밋
-  - `d5a6406` `2026-04-13 13:12:52 +0900`
-  - 메시지: `✨Feature: README.md 수정`
-- 그 이후 반영한 커밋
-  - `1040269` `2026-04-13 16:02:47 +0900` `✨Feature: 알림 키워드 제안 수정`
-  - `8045fcf` `2026-04-13 17:13:47 +0900` `✨Feature: Session 활성화 수 세팅`
-  - `02d319b` `2026-04-13 18:48:09 +0900` `✨Feature: 이해도 추이 로직 수정`
-
 ## 핵심 업데이트
 
 - `GET /api/sessions/{sessionId}` 응답에 `activeParticipantCount`가 추가되었습니다.
@@ -42,7 +32,7 @@ flowchart LR
     student -->|이해도 점수 전송| spring
 
     teacher[강사 대시보드<br/>React] -->|REST 조회| spring
-    teacher <-->|STOMP /topic/alert/{sessionId}| spring
+    teacher <-->|STOMP alert topic| spring
 
     fastapi[FastAPI AI Server<br/>FER / MediaPipe / GPT] -.직접 연동 가능.- student
 
